@@ -1,6 +1,8 @@
+
+cmnd.Session4.txt and cmnd.Session5.txt contain code for:
+
 Identification and characterization of distal regulatory elements (enhancers) in Stomach and Sigmoid Colon tissues.
-By integrating ATAC-seq and Histone ChIP-seq data, I mapped the active regulatory landscape and calculated the spatial 
-relationship between enhancers and protein-coding genes.
+By integrating ATAC-seq and Histone ChIP-seq data, I mapped the active regulatory landscape and calculated the spatial relationship between enhancers and protein-coding genes.
 
 Data was retrieve from ATAC-seq and ChIP-seq (H3K27ac, H3K4me1) bigBed files from ENCODE.
 Quality Control was validated using md5sum checks against ENCODE metadata.
