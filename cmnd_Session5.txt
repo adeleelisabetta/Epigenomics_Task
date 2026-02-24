@@ -1,0 +1,286 @@
+# from ATAC-seq hands-on session 5
+#Task 1: Create a folder regulatory_elements inside epigenomics_uvic. This will be the folder where you store all your subsequent results.
+mkdir regulatory_elements
+mkdir regulatory_elements/bed
+
+#Task 2: Distal regulatory regions are usually found to be flanked by both H3K27ac and H3K4me1. From your starting catalogue of open regions in each tissue, select those that overlap peaks of H3K27ac AND H3K4me1 in the corresponding tissue. You will get a list of candidate distal regulatory elements for each tissue. How many are they?
+
+#open regions outside gene body, using -v to obtain distal ATAC peaks outside genes
+cat analysis/bigBed.atac.ids.txt | while read filename tissue; do 
+bedtools intersect -v \
+-a data/bed.files/"$filename".bed \
+-b annotation/gencode.v24.gene.body.bed \
+> regulatory_elements/bed/"$tissue".ATAC.intergenic.bed
+done
+
+#in the data/bigBed.files
+#get H3K27ac bigBed files for stomach and sigmoid_colon from the Histon ChIP-seq of the same donor, select the target category and the bio samples, under ENCODE4 v1.5.1 RCh38 processed data
+wget https://www.encodeproject.org/files/ENCFF372FFI/@@download/ENCFF372FFI.bigBed #stomach H3K4me1 
+wget https://www.encodeproject.org/files/ENCFF977LBD/@@download/ENCFF977LBD.bigBed #stomach H3K27ac
+wget https://www.encodeproject.org/files/ENCFF683OKQ/@@download/ENCFF683OKQ.bigBed #sigmoid_colon H3K27ac
+wget https://www.encodeproject.org/files/ENCFF724ZOF/@@download/ENCFF724ZOF.bigBed #sigmoid H3K4me1
+
+#convert to Bed
+bigBedToBed data/bigBed.files/ENCFF372FFI.bigBed regulatory_elements/bed/stomach.H3K4me1.bed
+bigBedToBed data/bigBed.files/ENCFF977LBD.bigBed regulatory_elements/bed/stomach.H3K27ac.bed
+bigBedToBed data/bigBed.files/ENCFF683OKQ.bigBed regulatory_elements/bed/sigmoid_colon.H3K27ac.bed
+bigBedToBed data/bigBed.files/ENCFF724ZOF.bigBed regulatory_elements/bed/sigmoid_colon.H3K4me1.bed
+
+
+#the same in stomach
+bedtools intersect -u \
+  -a regulatory_elements/bed/stomach.ATAC.intergenic.bed \
+  -b regulatory_elements/bed/stomach.H3K27ac.bed \
+| bedtools intersect -u \
+  -a - \
+  -b regulatory_elements/bed/stomach.H3K4me1.bed \
+> regulatory_elements/bed/stomach.distal.regulatory.bed
+
+#distal regulatory regions flanked by both H3K27ac and H3K4me1 in colon
+bedtools intersect -u \
+  -a regulatory_elements/bed/sigmoid_colon.ATAC.intergenic.bed \
+  -b regulatory_elements/bed/sigmoid_colon.H3K27ac.bed \
+| bedtools intersect -u \
+  -a - \
+  -b regulatory_elements/bed/sigmoid_colon.H3K4me1.bed \
+> regulatory_elements/bed/sigmoid_colon.distal.regulatory.bed
+
+#how many are in the list of regulatory distal elements
+wc -l regulatory_elements/bed/*.distal.regulatory.bed
+
+Output: 10175 regulatory_elements/bed/sigmoid_colon.distal.regulatory.bed
+         6021 regulatory_elements/bed/stomach.distal.regulatory.bed
+        16196 total
+
+# Focus on regulatory elements that are located on chromosome 1, and generate a file regulatory.elements.starts.tsv that contains the name of the regulatory region (i.e. the name of the original ATAC-seq peak) and the start (5') coordinate of the region.
+
+# look at the distal.regulatory.bed files to know in which column is chrm 1, inside the regulatory_elements/bed
+
+head stomach.distal.regulatory.bed
+chr1	1079493	1080378	Peak_24039	270	.	5.22928	27.02500	24.20646	525
+chr1	1079493	1080378	Peak_25265	256	.	5.01567	25.61829	22.82155	195
+chr1	1079493	1080378	Peak_38063	160	.	4.00490	16.07549	13.46184	768
+chr1	1124797	1125018	Peak_32494	192	.	3.54911	19.25146	16.56763	106
+chr1	1125097	1125536	Peak_106662	55	.	2.09450	5.51351	3.32675326
+chr1	1125097	1125536	Peak_127062	46	.	1.98758	4.68771	2.5703981
+chr1	1132532	1132876	Peak_35758	173	.	3.10234	17.32507	14.68308	203
+chr1	1133417	1133678	Peak_17127	396	.	4.62262	39.61515	36.63807	137
+chr1	1144096	1145541	Peak_18461	363	.	5.69468	36.39788	33.45740	461
+chr1	1144096	1145541	Peak_239339	30	.	1.78147	3.01206	1.195661390
+
+# so for stomach
+awk 'BEGIN{FS=OFS="\t"} $1=="chr1" {print $4, $2}' \
+regulatory_elements/bed/stomach.distal.regulatory.bed \
+> regulatory_elements/stomach.regulatory.elements.starts.tsv
+
+# for sigmoid_colon
+awk 'BEGIN{FS=OFS="\t"} $1=="chr1" {print $4, $2}' \
+regulatory_elements/bed/sigmoid_colon.distal.regulatory.bed \
+> regulatory_elements/sigmoid_colon.regulatory.elements.starts.tsv
+
+# then check inside if it's okay
+head regulatory_elements/stomach.regulatory.elements.starts.tsv
+Peak_24039	1079493
+Peak_25265	1079493
+Peak_38063	1079493
+Peak_32494	1124797
+Peak_106662	1125097
+Peak_127062	1125097
+Peak_35758	1132532
+Peak_17127	1133417
+Peak_18461	1144096
+Peak_239339	1144096
+
+head regulatory_elements/sigmoid_colon.regulatory.elements.starts.tsv
+Peak_21162	923679
+Peak_36699	1079452
+Peak_53818	1079452
+Peak_67761	1079452
+Peak_98397	1079452
+Peak_20098	1122088
+Peak_233916	1157380
+Peak_24251	1157380
+Peak_62286	1157380
+Peak_8947	1157380
+
+
+# Focus on protein-coding genes located on chromosome 1. From the BED file of gene body coordinates that you generated here, prepare a tab-separated file called gene.starts.tsv which will store the name of the gene in the first column, and the start coordinate of the gene on the second column (REMEMBER: for genes located on the minus strand, the start coordinate will be at the 3'). Use the command below as a starting point:
+
+awk 'BEGIN{FS=OFS="\t"} $1=="chr1" {if ($6=="+"){start=$2} else {start=$3}; print $4, start}' annotation/gencode.v24.gene.body.bed > annotation/gene.starts.tsv
+
+#check the file
+head annotation/gene.starts.tsv
+DDX11L1	11868
+WASH7P	29570
+MIR6859-1	17436
+RP11-34P13.3	29553
+MIR1302-2	30365
+FAM138A	36081
+OR4G4P	52472
+OR4G11P	62947
+OR4F5	69090
+RP11-34P13.7	133723
+
+# inside epigenomics_uvic/bin 
+nano get.distance.py 
+
+#copied and paste the python script, and save it, then check the help page inside the epigenomics_uvic folder:
+python bin/get.distance.py -h
+
+# Complete the python script so that for a given coordinate --start the script returns the closest gene, the start of the gene and the distance of the regulatory element.
+
+nano get.distance.py 
+#!/usr/bin/env python
+
+
+#************
+# LIBRARIES *
+#************
+
+import sys
+from optparse import OptionParser
+
+
+#*****************
+# OPTION PARSING *
+#*****************
+
+parser = OptionParser()
+parser.add_option("-i", "--input", dest="input")
+parser.add_option("-s", "--start", dest="start")
+options, args = parser.parse_args()
+
+open_input = open(options.input)
+enhancer_start = int(options.start)
+
+
+#********
+# BEGIN *
+#********
+
+x=1000000 # set maximum distance to 1 Mb
+selectedGene="" # initialize the gene as empty
+selectedGeneStart=0 # initialize the start coordinate of the gene as empty
+
+for line in open_input.readlines(): # for each line in the input file
+	gene, y = line.strip().split('\t') # split the line into two columns based on a tab 
+        position = int(y)	# define a variable called position that correspond to the integer of the start of the gene
+	distance = abs(position - enhancer_start) # compute the absolute value of the difference between position and enhancer_start
+
+	if distance < x: # if this absolute value is lower than x
+	   x = distance	# this value will now be your current x
+	   selectedGene = gene	# save gene as selectedGene
+	   selectedGeneStart = position	# save position as selectedGeneStart
+
+print "\t".join([selectedGene, str(selectedGeneStart), str(x)])
+
+# to make sure it works, inside epigenomics_uvic folder: 
+python bin/get.distance.py --input ATAC-seq/annotation/gene.starts.tsv --start 980000
+ Output: PERM1	982093	2093         # I didn't obtain the expected result, I thing I stored the wrong column, I mean, I stored a different annotation of the gene, not the ENSG code. 
+
+# I checked in the gencode.v24.gene.body.bed and it doesn't contain the ENSG code, so I looked at the beginning in the gencode.v24.primary_assembly.annotation.gtf and extract again the right column
+
+awk '$3=="gene"' annotation/gencode.v24.primary_assembly.annotation.gtf |\ 
+grep -F "protein_coding" |\
+sed 's/gene_id "//; s/";//' |\
+awk 'BEGIN{OFS="\t"}{print $1, $4-1, $5, $9, ".", $7}' |\
+awk '$1!="chrM"' > annotation/gencode.v24.ensg.gene.body.bed
+
+#and checked
+head annotation/gencode.v24.ensg.gene.body.bed
+chr1	69090	70008	ENSG00000186092.4	.	+
+chr1	182392	184158	ENSG00000279928.1	.	+
+chr1	184922	200322	ENSG00000279457.3	.	-
+chr1	450739	451678	ENSG00000278566.1	.	-
+chr1	685715	686654	ENSG00000273547.1	.	-
+chr1	924879	944581	ENSG00000187634.10	.	+
+chr1	944203	959309	ENSG00000188976.10	.	-
+chr1	960586	965715	ENSG00000187961.13	.	+
+chr1	966496	975865	ENSG00000187583.10	.	+
+chr1	975203	982093	ENSG00000187642.9	.	-
+
+# create again the gene.starts.ensg.tsv file
+awk 'BEGIN{FS=OFS="\t"} $1=="chr1" {if ($6=="+") {start=$2} else {start=$3}; 
+    print $4, start}' annotation/gencode.v24.ensg.gene.body.bed > annotation/gene.starts.ensg.tsv
+
+head annotation/gene.starts.ensg.tsv
+ENSG00000186092.4	69090
+ENSG00000279928.1	182392
+ENSG00000279457.3	200322
+ENSG00000278566.1	451678
+ENSG00000273547.1	686654
+ENSG00000187634.10	924879
+ENSG00000188976.10	959309
+ENSG00000187961.13	960586
+ENSG00000187583.10	966496
+ENSG00000187642.9	982093
+
+#now it's the right one
+python bin/get.distance.py --input ATAC-seq/annotation/gene.starts.ensg.tsv --start 980000
+
+Right output: ENSG00000187642.9	982093	2093
+
+
+# For each regulatory element contained in the file regulatory.elements.starts.tsv, retrieve the closest gene and the distance to the closest gene using the python script you created above.
+
+cat ATAC-seq/regulatory_elements/stomach.regulatory.elements.starts.tsv | while read element start; do 
+   python bin/get.distance.py --input ATAC-seq/annotation/gene.starts.ensg.tsv --start $start | awk -v el="$element" '{print el, $0}'; 
+done > ATAC-seq/regulatory_elements/stomach.regulatoryElements.genes.distances.tsv
+
+#same for sigmoid_colon
+cat ATAC-seq/regulatory_elements/sigmoid_colon.regulatory.elements.starts.tsv | while read element start; do 
+   python bin/get.distance.py --input ATAC-seq/annotation/gene.starts.ensg.tsv --start $start | awk -v el="$element" '{print el, $0}'; 
+done > ATAC-seq/regulatory_elements/sigmoid_colon.regulatoryElements.genes.distances.tsv
+
+#to check
+head ATAC-seq/regulatory_elements/stomach.regulatoryElements.genes.distances.tsv
+Peak_24039 ENSG00000237330.2	1074307	5186
+Peak_25265 ENSG00000237330.2	1074307	5186
+Peak_38063 ENSG00000237330.2	1074307	5186
+Peak_32494 ENSG00000131591.17	1116361	8436
+Peak_106662 ENSG00000131591.17	1116361	8736
+Peak_127062 ENSG00000131591.17	1116361	8736
+Peak_35758 ENSG00000131591.17	1116361	16171
+Peak_17127 ENSG00000131591.17	1116361	17056
+Peak_18461 ENSG00000131591.17	1116361	27735
+Peak_239339 ENSG00000131591.17	1116361	27735
+Peak Id, Gene ID, Gene start and number of bp between peak and gene start.
+
+# Use R to compute the mean and the median of the distances stored in regulatoryElements.genes.distances.tsv
+
+#inside epigenomics_uvic/bin
+nano mean_median.distances.R
+
+#!/usr/bin/env Rscript
+
+args <- commandArgs(trailingOnly = TRUE)      #to capture arguments in the terminal
+
+#Load the file 
+filename <- args[1]
+data <- read.table(filename, header=FALSE, sep="", fill=TRUE)
+
+#The distances are in the 4th column
+distances <- as.numeric(data[,4])        #force to be numeric, if not R read like a character and gives error
+
+#Remove NAs
+distances <- distances[!is.na(distances)]
+
+#Compute and print results
+cat("Statistics for:", filename, "\n")
+cat("Mean: ", mean(distances), "\n")
+cat("Median: ", median(distances), "\n")
+
+#in the epigenomics_uvic/ATAC-seq
+Rscript ../bin/mean_median.distances.R regulatory_elements/stomach.regulatoryElements.genes.distances.tsv
+
+Output: Statistics for: regulatory_elements/stomach.regulatoryElements.genes.distances.tsv 
+Mean:  40137.06 
+Median:  25130.5 
+
+#same for sigmoid_colon
+Rscript ../bin/mean_median.distances.R regulatory_elements/sigmoid_colon.regulatoryElements.genes.distances.tsv
+
+Output: Statistics for: regulatory_elements/sigmoid_colon.regulatoryElements.genes.distances.tsv 
+Mean:  71863.02 
+Median:  36027 
+

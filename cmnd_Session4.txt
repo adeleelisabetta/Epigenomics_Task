@@ -1,0 +1,131 @@
+# Folder to store results
+# from ATAC-seq hands-on session 4
+#Move to folder ATAC-seq, and create folders to store bigBed data files and peaks analyses files.
+
+mkdir data  
+mkdir data/bigBed.files
+
+#Retrieve from a newly generated metadata file ATAC-seq peaks (bigBed narrow, pseudoreplicated peaks, assembly GRCh38) for stomach and sigmoid_colon for the same donor used in the previous sections.
+
+../bin/download.metadata.sh "https://www.encodeproject.org/metadata/?replicates.library.biosample.donor.uuid=d370683e-81e7-473f-8475-7716d027849b&status=released&status=submitted&status=in+progress&assay_title=ATAC-seq&biosample_ontology.term_name=sigmoid+colon&biosample_ontology.term_name=stomach&type=Experiment&files.analyses.status=released&files.preferred_default=true"
+
+cd data
+cd bigBed.files
+wget https://www.encodeproject.org/files/ENCFF762IFP/@@download/ENCFF762IFP.bigBed
+wget https://www.encodeproject.org/files/ENCFF287UHP/@@download/ENCFF287UHP.bigBed
+
+echo -e "ENCFF287UHP\tsigmoid_colon\nENCFF762IFP\tstomach" > analysis/bigBed.atac.ids.txt
+
+#Make sure your md5sum values coincide with the ones provided by ENCODE.
+#in the ATAC-seq directory
+
+for file_type in bigBed; do
+
+  ../bin/selectRows.sh <(cut -f1 analysis/"$file_type".*.ids.txt) metadata.tsv |\
+  cut -f1,46 > data/"$file_type".files/md5sum.txt
+
+  cat data/"$file_type".files/md5sum.txt |\
+  while read filename original_md5sum; do 
+    md5sum data/"$file_type".files/"$filename"."$file_type" |\
+    awk -v filename="$filename" -v original_md5sum="$original_md5sum" \
+    'BEGIN{FS=" "; OFS="\t"}{print filename, original_md5sum, $1}' 
+  done > tmp
+
+  mv tmp data/"$file_type".files/md5sum.txt
+
+  awk '$2!=$3' data/"$file_type".files/md5sum.txt
+
+done
+#no output, everything is fine.
+
+#For each tissue, run an intersection analysis using BEDTools: report 1) the number of peaks that intersect promoter regions, 2) the number of peaks that fall outside gene coordinates (whole gene body, not just the promoter regions).
+
+# convert bigBid -> bed
+mkdir data/bed.files
+
+cut -f1 analysis/bigBed.atac.ids.txt |\
+while read filename; do
+  bigBedToBed data/bigBed.files/"$filename".bigBed data/bed.files/"$filename".bed
+done
+
+
+#create folder annotations and download annotation
+mkdir annotation
+wget -P annotation "https://www.encodeproject.org/files/gencode.v24.primary_assembly.annotation/@@download/gencode.v24.primary_assembly.annotation.gtf.gz"
+
+#uncompress
+gunzip annotation/gencode.v24.primary_assembly.annotation.gtf.gz
+
+#look inside
+less annotation/gencode.v24.primary_assembly.annotation.gtf
+
+#convert annotation in BED format, remove mitochondrial genes ($1!="chrM"), move form 1-based to 0-based coordinate system
+awk '$3=="gene"' annotation/gencode.v24.primary_assembly.annotation.gtf |\
+awk 'BEGIN{OFS="\t"}{match($0,/gene_name "([^"]+)"/,a); gene=a[1]; print $1,$4-1,$5,gene,".",$7}' |\
+awk '$1!="chrM"' |\
+sort -k1,1 -k2,2n > annotation/gencode.v24.gene.body.bed
+
+
+#create folder peaks.analysis
+mkdir analysis/peaks.analysis
+
+# genes with peaks in the gene body  column 4 with the gene_name
+cat analysis/bigBed.atac.ids.txt |\
+while read filename tissue; do 
+  bedtools intersect -u \
+-a annotation/gencode.v24.gene.body.bed -b data/bed.files/"$filename".bed |\
+  cut -f4 |\
+  sort -u > analysis/peaks.analysis/genes.with.peaks."$tissue".txt
+done
+
+#genes with peaks in the promoter
+cat analysis/bigBed.atac.ids.txt |\
+while read filename tissue; do 
+  bedtools intersect -u \
+    -a annotation/gencode.v24.protein.coding.non.redundant.TSS.bed \
+    -b data/bed.files/"$filename".bed |\
+  cut -f4 | sort -u > analysis/peaks.analysis/genes.with.promoter.peaks."$tissue".txt
+done
+
+#number of peaks in the promoters, using -u to know which overlap
+cat analysis/bigBed.atac.ids.txt |\
+while read filename tissue; do 
+  bedtools intersect -u \
+-a data/bed.files/"$filename".bed -b annotation/gencode.v24.protein.coding.non.redundant.TSS.bed |\
+wc -l
+done
+
+Output: 47871     #sigmoid colon
+        44749     #stomach
+           
+
+#number of peaks outside the gene bodies, using -v to considering the one that not overlap with gene body. Intergenic peaks
+cat analysis/bigBed.atac.ids.txt |\
+while read filename tissue; do 
+  bedtools intersect -v \
+-a data/bed.files/"$filename".bed -b annotation/gencode.v24.gene.body.bed |\
+wc -l
+done
+
+Output: 27089   #sigmoid colon
+        25489   #stomach
+
+
+#to be sure that the number of reads are correct, I also counted the number of peaks inside the gene body.
+cat analysis/bigBed.atac.ids.txt |\
+while read filename tissue; do 
+  bedtools intersect -u \
+-a data/bed.files/"$filename".bed -b annotation/gencode.v24.gene.body.bed |\
+wc -l
+done
+
+Output: 83910   #sigmoid colon
+        78120   #stomach
+
+#and total count
+wc -l data/bed.files/ENCFF287UHP.bed
+Output: 110999   #in sigmoid colon
+
+wc -l data/bed.files/ENCFF762IFP.bed
+Output:  103609   # in stomach
+
